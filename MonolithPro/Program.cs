@@ -2,27 +2,58 @@ using MonolithPro.Modules.Users;
 using MonolithPro.Modules.Orders;
 using MonolithPro.Modules.Inventory;
 using MonolithPro.Shared;
+using MonolithPro.Data;
+using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Configuración de servicios
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-// Registrar servicios compartidos
-builder.Services.AddSingleton<DatabaseContext>();
+// CONFIGURACIÓN DE ENTITY FRAMEWORK CORE
+builder.Services.AddDbContext<MonolithProDbContext>(options =>
+    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection"))
+);
+
+// Servicios compartidos (SIN DatabaseContext)
 builder.Services.AddSingleton<LoggerService>();
 builder.Services.AddSingleton<EmailService>();
 
-// Registrar servicios de módulos
+// Servicios de módulos (Scoped por DbContext)
 builder.Services.AddScoped<UserService>();
 builder.Services.AddScoped<OrderService>();
 builder.Services.AddScoped<InventoryService>();
 
 var app = builder.Build();
 
-// Configuración del pipeline HTTP
+// APLICAR MIGRACIONES AUTOMÁTICAMENTE
+using (var scope = app.Services.CreateScope())
+{
+    var dbContext = scope.ServiceProvider.GetRequiredService<MonolithProDbContext>();
+    var logger = scope.ServiceProvider.GetRequiredService<LoggerService>();
+
+    try
+    {
+        logger.Log("Checking for pending migrations...");
+
+        if (dbContext.Database.GetPendingMigrations().Any())
+        {
+            logger.Log("Applying migrations...");
+            dbContext.Database.Migrate();
+            logger.Log("✅ Migrations applied");
+        }
+        else
+        {
+            logger.Log("✅ Database up to date");
+        }
+    }
+    catch (Exception ex)
+    {
+        logger.LogError($"❌ Migration error: {ex.Message}");
+    }
+}
+
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();

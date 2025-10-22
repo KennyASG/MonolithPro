@@ -1,22 +1,22 @@
 using MonolithPro.Shared;
 using MonolithPro.Modules.Users;
 using MonolithPro.Modules.Inventory;
+using MonolithPro.Data;
+using Microsoft.EntityFrameworkCore;
 
 namespace MonolithPro.Modules.Orders;
 
 public class OrderService
 {
-    private readonly List<Order> _orders;
-    private readonly DatabaseContext _dbContext;
+    private readonly MonolithProDbContext _dbContext;
     private readonly LoggerService _logger;
     private readonly EmailService _emailService;
     private readonly UserService _userService;
     private readonly InventoryService _inventoryService;
-    private int _nextId = 1;
 
     public OrderService(
-        DatabaseContext dbContext, 
-        LoggerService logger, 
+        MonolithProDbContext dbContext,
+        LoggerService logger,
         EmailService emailService,
         UserService userService,
         InventoryService inventoryService)
@@ -26,27 +26,26 @@ public class OrderService
         _emailService = emailService;
         _userService = userService;
         _inventoryService = inventoryService;
-        _orders = new List<Order>();
-        
-        _logger.Log("OrderService initialized");
+
+        _logger.Log("OrderService initialized with SQL Server backend");
     }
 
     public List<Order> GetAllOrders()
     {
-        _logger.Log("Getting all orders");
-        return _orders;
+        _logger.Log("Getting all orders from database");
+        return _dbContext.Orders.ToList();
     }
 
     public Order GetOrderById(int id)
     {
         _logger.Log($"Getting order by ID: {id}");
-        return _orders.FirstOrDefault(o => o.Id == id);
+        return _dbContext.Orders.FirstOrDefault(o => o.Id == id);
     }
 
     public Order CreateOrder(int userId, int productId, int quantity)
     {
         _logger.Log($"Creating order - User: {userId}, Product: {productId}, Quantity: {quantity}");
-        
+
         // ACOPLAMIENTO DIRECTO: Dependencia con UserService
         var user = _userService.GetUserById(userId);
         if (user == null)
@@ -74,15 +73,15 @@ public class OrderService
         // Calcular total usando el precio del inventario
         decimal total = _inventoryService.GetProductPrice(productId) * quantity;
 
-        var order = new Order(_nextId++, userId, productId, quantity, total);
+        var order = new Order(0, userId, productId, quantity, total);
         order.Status = "Confirmed";
-        _orders.Add(order);
-        
+
+        _dbContext.Orders.Add(order);
         _dbContext.SaveChanges();
-        
+
         // ACOPLAMIENTO DIRECTO: Enviar email de confirmación al usuario
         _emailService.SendOrderConfirmation(user.Email, order.Id);
-        
+
         _logger.Log($"Order created successfully. Order ID: {order.Id}, Total: ${order.Total}");
         return order;
     }
@@ -90,14 +89,14 @@ public class OrderService
     public List<Order> GetOrdersByUserId(int userId)
     {
         _logger.Log($"Getting orders for user: {userId}");
-        
+
         // ACOPLAMIENTO DIRECTO: Verificar que el usuario existe
         if (!_userService.UserExists(userId))
         {
             _logger.LogWarning($"User {userId} not found while fetching orders");
             return new List<Order>();
         }
-        
-        return _orders.Where(o => o.UserId == userId).ToList();
+
+        return _dbContext.Orders.Where(o => o.UserId == userId).ToList();
     }
 }
